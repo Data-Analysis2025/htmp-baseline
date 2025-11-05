@@ -2,6 +2,11 @@
 __pycache__/
 *.py[cod]
 
+*.csv
+*.zip
+*.proto
+tutorials/ds_handmade_ml/outputs
+a
 # Jupyter
 .ipynb_checkpoints/
 

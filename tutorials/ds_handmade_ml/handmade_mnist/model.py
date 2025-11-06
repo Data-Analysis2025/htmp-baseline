@@ -28,7 +28,9 @@ class SmallConvNet(nn.Module):
             nn.Dropout(0.5),
             nn.Linear(256, 10),
         )
-
+        # モジュール構造が定義された直後にブレーク
+        import pdb; pdb.set_trace()
+        
     def forward(self, x):  # type: ignore[override]
         """入力テンソルをクラス確率に変換する。"""
 

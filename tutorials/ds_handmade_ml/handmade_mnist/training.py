@@ -92,6 +92,9 @@ def train_one_epoch(
         total=limit,
     )
 
+    # train_one_epoch ループ開始直前にブレーク
+    import pdb; pdb.set_trace()
+
     for batch_idx, (images, labels) in enumerate(progress):
         maybe_breakpoint(use_pdb, f"before to({device}) batch={batch_idx}")
         images = images.to(device)
@@ -148,6 +151,9 @@ def evaluate(
         leave=False,
         total=limit,
     )
+
+    # evaluate ループ開始直前にブレーク
+    import pdb; pdb.set_trace()
 
     with torch.no_grad():
         for batch_idx, (images, labels) in enumerate(progress):

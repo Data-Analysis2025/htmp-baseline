@@ -70,6 +70,8 @@ def inspect_batch(batch: tuple[torch.Tensor, torch.Tensor]) -> Dict[str, object]
     images, labels = batch
     numpy_images = images.detach().cpu().numpy()
 
+    import pdb; pdb.set_trace()  # テンソル(images)が作成された直後にブレーク
+
     stats: Dict[str, object] = {
         "tensor_shape": tuple(images.shape),
         "tensor_dtype": str(images.dtype),

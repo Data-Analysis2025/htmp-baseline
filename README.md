@@ -107,6 +107,7 @@ Notebookを提出（Submit to Competition）
 ```bash
 # sklearn 1.2.2をインストール（Kaggle環境に合わせる）
 pip install scikit-learn==1.2.2
+pip install scikit-learn==1.4 (WS02ではこれで動作確認済)
 
 # モデルを訓練
 python scripts/train.py --config configs/default.yaml

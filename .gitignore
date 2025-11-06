@@ -8,6 +8,12 @@ __pycache__/
 # Environments
 .env
 .venv
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.zip
+*.proto
 
 # Data & outputs
 /data/raw/*

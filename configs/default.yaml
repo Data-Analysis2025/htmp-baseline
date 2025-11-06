@@ -1,0 +1,47 @@
+# 実験名
+run_name: default
+
+# ランダムシード
+seed: 42
+
+# パス設定
+paths:
+  input_dir: data
+  processed_dir: data/processed
+  models_dir: models
+  submissions_dir: submissions
+  logs_dir: logs
+
+files:
+  train: train.csv
+  test: test.csv   # 必要なら追加
+  
+# 目的変数
+target:
+  column: market_forward_excess_returns
+
+# 交差検証
+cv:
+  strategy: time_series  # 時系列分割
+  n_splits: 5
+  time_column: date_id
+
+# 特徴量エンジニアリング
+features:
+  drop_columns:
+    - date_id
+    - forward_returns
+    - risk_free_rate
+    - market_forward_excess_returns
+    - lagged_forward_returns
+    - lagged_risk_free_rate
+    - lagged_market_forward_excess_returns
+    - is_scored
+  imputation_strategy: median
+  scale: true
+
+# モデル
+model:
+  type: ridge
+  params:
+    alpha: 1.0

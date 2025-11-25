@@ -55,7 +55,7 @@ def main() -> None:
         imputation_strategy=feature_cfg.get("imputation_strategy", "median"),
         scale=feature_cfg.get("scale", True),
         rolling_windows=feature_cfg.get("rolling_windows"),
-        enable_interactions=feature_cfg.get("enable_interactions", False),
+        enable_interactions=feature_cfg.get("enable_interactions", True),
         time_column=cv_cfg.get("time_column"),
         group_column=cv_cfg.get("group_column"),
     )

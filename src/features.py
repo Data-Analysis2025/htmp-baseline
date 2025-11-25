@@ -14,7 +14,7 @@ class FeatureConfig:
     imputation_strategy: str = "median"
     scale: bool = True
     rolling_windows: Sequence[int] | None = None
-    enable_interactions: bool = False
+    enable_interactions: bool = True
     time_column: str | None = None
     group_column: str | None = None
 
@@ -119,6 +119,7 @@ class SimpleFeatureExtractor:
         return augmented
 
     def _add_interactions(self, df_numeric: pd.DataFrame) -> pd.DataFrame:
+        # import pdb; pdb.set_trace()
         if not self.config.enable_interactions:
             return df_numeric
         interaction_cols = {}

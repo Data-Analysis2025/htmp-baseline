@@ -80,6 +80,12 @@ class SimpleFeatureExtractor:
         return df_numeric
 
     def _apply_imputation(self, df_numeric: pd.DataFrame) -> pd.DataFrame:
+        # Optuna:ffill->bfill->median
+        if self.config.imputation_strategy == "ffill_bfill_median":
+            df_filled = df_numeric.ffill()
+            df_filled = df_filled.bfill()
+            return df_filled.fillna(df_filled.median())
+
         if self.config.imputation_strategy == "mean":
             return df_numeric.fillna(df_numeric.mean())
         if self.config.imputation_strategy == "median":

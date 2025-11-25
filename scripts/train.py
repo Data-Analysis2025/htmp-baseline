@@ -13,6 +13,11 @@ import pandas as pd
 # Ensure src modules are importable when running as a script
 import sys
 
+
+# OptunaとLightGBM
+import lightgbm as lgb
+import optuna
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -29,6 +34,26 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# ヘルパー関数
+def parse_optuna_params(trial: optuna.Trial, param_config: dict) -> dict:
+    params = {}
+    for name, config in param_config.items():
+        if isinstance(config, dict):
+            low = config["low"]
+            high = config["high"]
+
+            if config["type"] == "loguniform":
+                params[name] = trial.suggest_loguniform(name, float(low), float(high))
+            elif config["type"] == "uniform":
+                params[name] = trial.suggest_uniform(name, float(low), float(high))
+            elif config["type"] == "int":
+                params[name] = trial.suggest_int(name, int(low), int(high))
+        
+        else:
+            params[name] = config
+    return params
+
+
 def main() -> None:
     args = parse_args()
     config = Config.from_yaml(args.config)
@@ -42,6 +67,7 @@ def main() -> None:
     cv_cfg = config.get("cv")
     feature_cfg = config.get("features")
     model_cfg = config.get("model")
+    optuna_cfg = config.get("optuna") # Optuna設定を読み込む
 
     train_df = pd.read_csv(Path(paths["input_dir"]) / files["train"])
     target_column = target_cfg["column"]
@@ -69,10 +95,54 @@ def main() -> None:
         random_state=config.get("seed"),
     )
 
+
+    # Optunaによるハイパーパラメータ探索
+    def objective(trial: optuna.Trial) -> float:
+        # YAMLの設定からOptunaの探索パラメータを動的に生成
+        model_params = parse_optuna_params(trial, model_cfg.get("params", {}))
+        
+        scores = []
+        cv_search = build_cv(
+            strategy=cv_cfg.get("strategy", "time_series"),
+            n_splits=cv_cfg.get("n_splits", 5),
+            shuffle=cv_cfg.get("strategy") != "time_series",
+            random_state=config.get("seed"),
+        )
+        
+        for fold, (train_idx, valid_idx) in enumerate(cv_search.split(X, y)):
+            X_train, X_valid = X.iloc[train_idx], X.iloc[valid_idx]
+            y_train, y_valid = y[train_idx], y[valid_idx]
+
+            model = lgb.LGBMRegressor(**model_params)
+            model.fit(
+                X_train, y_train,
+                eval_set=[(X_valid, y_valid)],
+                eval_metric="rmse",
+                callbacks=[lgb.early_stopping(100, verbose=False)]
+            )
+            preds = model.predict(X_valid)
+            scores.append(rmse(y_valid, preds))
+            
+        return np.mean(scores)
+
+    study = optuna.create_study(direction=optuna_cfg.get("direction", "minimize"))
+    study.optimize(objective, n_trials=optuna_cfg.get("n_trials", 50))
+
+    best_params = study.best_params
+    print(f"--- Optuna Search Finished ---")
+    print(f"Best RMSE (avg): {study.best_value:.5f}")
+    print(f"Best Hyperparameters: {best_params}")
+
+
+    # 見つけたBest ParamsでK-Fold訓練 & モデル保存
+    # model_configを、Optunaで見つけたbest_paramsで上書きする
+    final_model_params = model_cfg.get("params", {}).copy()
+    final_model_params.update(best_params) # best_paramsで上書き
+
     model_config = ModelConfig(
-        type=model_cfg.get("type", "ridge"),
-        params=model_cfg.get("params", {}),
-        fit_intercept=model_cfg.get("fit_intercept", True),
+        type=model_cfg.get("type", "lightgbm"),
+        params=final_model_params, # Optunaの結果を使う
+        fit_intercept=model_cfg.get("fit_intercept", False),
     )
 
     oof_predictions = np.zeros(len(train_df))
@@ -80,7 +150,13 @@ def main() -> None:
 
     for fold, (train_idx, valid_idx) in enumerate(cv_strategy.split(X, y)):
         model = create_model(model_config)
-        model.fit(X.iloc[train_idx], y[train_idx])
+        # LGBMのfit時には early_stopping を使う
+        model.fit(
+            X.iloc[train_idx], y[train_idx],
+            eval_set=[(X.iloc[valid_idx], y[valid_idx])],
+            eval_metric="rmse",
+            callbacks=[lgb.early_stopping(100, verbose=False)]
+        )
         preds = model.predict(X.iloc[valid_idx])
         oof_predictions[valid_idx] = preds
         fold_score = rmse(y[valid_idx], preds)
@@ -103,6 +179,8 @@ def main() -> None:
         "run_name": config.get("run_name"),
         "scores": scores,
         "oof_rmse": overall_rmse,
+        "optuna_best_value": study.best_value,
+        "optuna_best_params": best_params,
         "feature_columns": list(X.columns),
         "config_path": str(config.path),
     }

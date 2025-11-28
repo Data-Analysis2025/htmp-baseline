@@ -122,12 +122,10 @@ def main() -> None:
         val_rmse_scores.append(val_rmse_score)
 
         model_path = Path(paths["models_dir"]) / f"{config.get('run_name')}_fold_{fold}.pkl"
-        joblib.dump(
-            {
-                "model": model,
-                "scaler": extractor.scaler,
-                "feature_columns": list(X.columns),
-            },
+        joblib.dump({
+            "model": model,
+            "feature_extractor": extractor,   # ★ 完全な状態を丸ごと保存
+        },
             model_path,
         )
         print(

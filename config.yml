@@ -52,6 +52,6 @@ model:
     # elasticnet example:
     # l1_ratio: 0.5
     # lightgbm example:
-    num_leaves: 64
+    num_leaves: 128
     learning_rate: 0.05
     n_estimators: 500

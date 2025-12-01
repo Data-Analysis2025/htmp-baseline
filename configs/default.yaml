@@ -37,7 +37,7 @@ features:
     - lagged_risk_free_rate
     - lagged_market_forward_excess_returns
     - is_scored
-  imputation_strategy: ffill_bfill_median # Optuna用に変更
+  imputation_strategy: MICE # Optuna用に変更
   scale: true
 
 # Optunaによる探索設定

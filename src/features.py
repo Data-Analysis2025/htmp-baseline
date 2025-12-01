@@ -6,6 +6,10 @@ from typing import List, Sequence
 
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+from sklearn.impute import KNNImputer  # k近傍法
+
+from sklearn.experimental import enable_iterative_imputer  # MICE
+from sklearn.impute import IterativeImputer # MICE
 
 
 @dataclass
@@ -80,7 +84,45 @@ class SimpleFeatureExtractor:
         return df_numeric
 
     def _apply_imputation(self, df_numeric: pd.DataFrame) -> pd.DataFrame:
-        # Optuna:ffill->bfill->medianの流れ
+        # スプライン補完
+        if self.config.imputation_strategy == "spline":
+            # order=3: 3次スプライン
+            df_filled = df_numeric.interpolate(method='spline', order=3, limit_direction='both')
+            return df_filled.fillna(df_filled.median())
+
+        # MICE
+        if self.config.imputation_strategy == "iterative":
+            # max_iter=10: 10回繰り返して精度を高める
+            # random_state=42: 結果を固定する
+            imputer = IterativeImputer(max_iter=10, random_state=42)
+            
+            return pd.DataFrame(
+                imputer.fit_transform(df_numeric),
+                columns=df_numeric.columns,
+                index=df_numeric.index
+            )
+        
+        # k近傍法
+        if self.config.imputation_strategy == "knn":
+            # n_neighbors=5: 最も似ている5つのデータを参考にする
+            imputer = KNNImputer(n_neighbors=5)
+            
+            # KNNImputerはnumpy arrayを返すため、DataFrameに戻す
+            return pd.DataFrame(
+                imputer.fit_transform(df_numeric),
+                columns=df_numeric.columns,
+                index=df_numeric.index
+            )
+
+        # 線形補完
+        if self.config.imputation_strategy == "linear":
+            # method='linear': 直線で結ぶ
+            # limit_direction='both': 先頭や末尾の欠損も、最も近い有効値で埋める
+            df_filled = df_numeric.interpolate(method='linear', limit_direction='both')
+            # 万が一、列全体がNaNなどで埋まらなかった場合、中央値を使う
+            return df_filled.fillna(df_filled.median())
+
+        # ffill->bfill->median
         if self.config.imputation_strategy == "ffill_bfill_median":
             df_filled = df_numeric.ffill()
             df_filled = df_filled.bfill()
@@ -90,7 +132,8 @@ class SimpleFeatureExtractor:
             return df_numeric.fillna(df_numeric.mean())
         if self.config.imputation_strategy == "median":
             return df_numeric.fillna(df_numeric.median())
-        return df_numeric.fillna(0.0)
+            
+        return df_filled.fillna(0.0)
 
     def _add_rolling_statistics(self, df_numeric: pd.DataFrame, df_original: pd.DataFrame) -> pd.DataFrame:
         windows = self.config.rolling_windows or []

@@ -80,7 +80,7 @@ class SimpleFeatureExtractor:
         return df_numeric
 
     def _apply_imputation(self, df_numeric: pd.DataFrame) -> pd.DataFrame:
-        # Optuna:ffill->bfill->median
+        # Optuna:ffill->bfill->medianの流れ
         if self.config.imputation_strategy == "ffill_bfill_median":
             df_filled = df_numeric.ffill()
             df_filled = df_filled.bfill()

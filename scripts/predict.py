@@ -3,8 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import List
+
+# NOTE: In some sandboxed environments OpenMP-backed linear algebra aborts when it cannot
+# allocate shared memory. Force a sequential threading layer before importing numpy/scipy/sklearn.
+os.environ.setdefault("MKL_THREADING_LAYER", "SEQ")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 import joblib
 import numpy as np
@@ -18,7 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.config import Config
-from src.features import FeatureConfig, SimpleFeatureExtractor
+from src.calendar_features import merge_calendar_features
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,22 +46,21 @@ def main() -> None:
     files = config.get("files")
     target_cfg = config.get("target")
     cv_cfg = config.get("cv")
-    feature_cfg = config.get("features")
     inference_cfg = config.get("inference")
 
-    test_df = pd.read_csv(Path(paths["input_dir"]) / files["test"])
-    sample_submission = pd.read_csv(Path(paths["input_dir"]) / files["sample_submission"])
+    date_key = cv_cfg.get("time_column") or "date_id"
+    calendar_path = None
+    calendar_file = files.get("calendar")
+    if calendar_file:
+        calendar_path = Path(calendar_file)
+        if not calendar_path.is_absolute():
+            calendar_path = Path(paths["input_dir"]) / calendar_file
 
-    feature_config = FeatureConfig(
-        drop_columns=feature_cfg.get("drop_columns", []),
-        imputation_strategy=feature_cfg.get("imputation_strategy", "median"),
-        scale=feature_cfg.get("scale", True),
-        rolling_windows=feature_cfg.get("rolling_windows"),
-        enable_interactions=feature_cfg.get("enable_interactions", False),
-        time_column=cv_cfg.get("time_column"),
-        group_column=cv_cfg.get("group_column"),
-    )
-    extractor = SimpleFeatureExtractor(feature_config)
+    test_df = pd.read_csv(Path(paths["input_dir"]) / files["test"])
+    if calendar_path is not None:
+        test_df = merge_calendar_features(test_df, calendar_path, date_key=date_key)
+    sample_submission_file = files.get("sample_submission", "sample_submission.csv")
+    sample_submission = pd.read_csv(Path(paths["input_dir"]) / sample_submission_file)
 
     model_files = sorted(Path(paths["models_dir"]).glob(f"{config.get('run_name')}_fold_*.pkl"))
     if not model_files:
@@ -64,10 +70,12 @@ def main() -> None:
     for model_file in model_files:
         artifact = joblib.load(model_file)
         model = artifact["model"]
-        scaler = artifact.get("scaler")
+        extractor = artifact.get("feature_extractor")
+        if extractor is None:
+            raise KeyError(
+                f"Missing 'feature_extractor' in {model_file}. Re-train models with scripts/train.py."
+            )
         feature_columns = artifact["feature_columns"]
-
-        extractor.scaler = scaler
         transformed = extractor.transform(test_df, target_column=target_cfg.get("column"))
         # Align feature columns if the test set lost any columns during processing.
         missing_cols = [col for col in feature_columns if col not in transformed.columns]

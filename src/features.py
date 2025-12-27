@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Sequence
+import re
+from typing import Dict, List, Sequence, Set
 
 import numpy as np
 import pandas as pd
@@ -15,14 +16,21 @@ class FeatureConfig:
     imputation_strategy: str = "median"
     scale: bool = True
     rolling_windows: Sequence[int] | None = None
+    rolling_feature_naming: str = "roll"  # "roll" -> *_roll{w}, "rolling_mean" -> *_rolling_mean_{w}
     enable_interactions: bool = True
     time_column: str | None = None
     group_column: str | None = None
     missing_ratio_threshold: float = 40.0  # percent; keep cols with missing <= threshold
+    use_limited_features: bool = False
+    limited_features: Sequence[str] | None = None
+    manual_features: Sequence[str] | None = None  # raw + derived (e.g., P10_inv, P7_x_V13_rolling_mean_3)
 
 
 class SimpleFeatureExtractor:
     """Extracts features for HTMP with ordered missing handling and domain crosses."""
+
+    _ROLLING_MEAN_RE = re.compile(r"^(?P<base>.+)_rolling_mean_(?P<window>[0-9]+)$")
+    _ROLL_RE = re.compile(r"^(?P<base>.+)_roll(?P<window>[0-9]+)$")
 
     def __init__(self, config: FeatureConfig):
         self.config = config
@@ -40,6 +48,11 @@ class SimpleFeatureExtractor:
             for col in df.columns
             if col not in drop_cols and pd.api.types.is_numeric_dtype(df[col])
         ]
+        if self.config.use_limited_features:
+            if not self.config.limited_features:
+                raise ValueError("use_limited_features is True but limited_features is empty.")
+            allowed = set(self.config.limited_features)
+            numeric_columns = [col for col in numeric_columns if col in allowed]
         if not numeric_columns:
             raise ValueError("No numeric columns available for feature extraction.")
         return numeric_columns
@@ -65,6 +78,9 @@ class SimpleFeatureExtractor:
         target_column: str | None = None,
         fit: bool = False,
     ) -> pd.DataFrame:
+        if self.config.manual_features:
+            return self._create_manual_features(df, target_column=target_column, fit=fit)
+
         if fit:
             self.base_columns = self._prepare_columns(df, target_column=target_column)
             self.filtered_columns = self._filter_by_missing_ratio(df, self.base_columns)
@@ -97,8 +113,18 @@ class SimpleFeatureExtractor:
                 self.impute_values = df_numeric.median(numeric_only=True).to_dict()
             else:
                 self.impute_values = {col: 0.0 for col in df_numeric.columns}
+            # If a column is entirely missing, mean/median can be NaN; replace with 0.0.
+            self.impute_values = {
+                col: (float(val) if np.isfinite(val) else 0.0)
+                for col, val in self.impute_values.items()
+            }
         if not self.impute_values:
             raise RuntimeError("Imputation values not prepared. Call fit_transform first.")
+        missing_imputes = [col for col in df_numeric.columns if col not in self.impute_values]
+        if missing_imputes:
+            raise RuntimeError(
+                "Imputation values missing for columns: " + ", ".join(sorted(missing_imputes))
+            )
         filled = df_numeric.fillna(self.impute_values)
         return filled
 
@@ -115,7 +141,11 @@ class SimpleFeatureExtractor:
 
         augmented = df_numeric.copy()
         for window in windows:
-            suffix = f"_roll{window}"
+            suffix = (
+                f"_rolling_mean_{window}"
+                if self.config.rolling_feature_naming == "rolling_mean"
+                else f"_roll{window}"
+            )
             if group_col and group_col in df_with_time.columns:
                 rolled_parts = []
                 for col in df_numeric.columns:
@@ -138,6 +168,149 @@ class SimpleFeatureExtractor:
         """Avoid blow-ups when volatility/rates are near zero."""
         eps = 1e-6
         return numerator / (denominator.replace(0, np.nan).fillna(eps))
+
+    def _safe_inverse(self, series: pd.Series) -> pd.Series:
+        eps = 1e-6
+        denom = series.replace(0, np.nan).fillna(eps)
+        return 1.0 / denom
+
+    def _rolling_mean(
+        self,
+        series: pd.Series,
+        df_original: pd.DataFrame,
+        window: int,
+    ) -> pd.Series:
+        time_col = self.config.time_column
+        if time_col is None or time_col not in df_original.columns:
+            raise KeyError(
+                "time_column is required for rolling_mean features but was not provided in config."
+            )
+        time_values = df_original[time_col]
+        group_col = self.config.group_column
+        if group_col and group_col in df_original.columns:
+            group_values = df_original[group_col]
+            out = pd.Series(index=series.index, dtype=float)
+            groups = group_values.groupby(group_values, sort=False).groups
+            for _, idx in groups.items():
+                idx = pd.Index(idx)
+                sorted_idx = time_values.loc[idx].sort_values().index
+                rolled = series.loc[sorted_idx].rolling(window=window, min_periods=1).mean()
+                out.loc[sorted_idx] = rolled.values
+            return out
+
+        sorter = time_values.argsort()
+        sorted_idx = series.index[sorter]
+        rolled = series.loc[sorted_idx].rolling(window=window, min_periods=1).mean()
+        return rolled.reindex(series.index)
+
+    def _required_raw_columns(self, feature_name: str) -> Set[str]:
+        name = feature_name
+        if name.endswith("_raw"):
+            return self._required_raw_columns(name[: -len("_raw")])
+        if "_x_" in name:
+            left, right = name.split("_x_", 1)
+            return self._required_raw_columns(left) | self._required_raw_columns(right)
+        if "_div_" in name:
+            left, right = name.split("_div_", 1)
+            return self._required_raw_columns(left) | self._required_raw_columns(right)
+        if name.endswith("_inv"):
+            return self._required_raw_columns(name[: -len("_inv")])
+
+        match = self._ROLLING_MEAN_RE.match(name)
+        if match is not None:
+            return self._required_raw_columns(match.group("base"))
+        match = self._ROLL_RE.match(name)
+        if match is not None:
+            return self._required_raw_columns(match.group("base"))
+        return {name}
+
+    def _create_manual_features(
+        self,
+        df_original: pd.DataFrame,
+        target_column: str | None,
+        fit: bool,
+    ) -> pd.DataFrame:
+        requested = [str(f) for f in (self.config.manual_features or []) if str(f).strip()]
+        if not requested:
+            raise ValueError("manual_features is enabled but empty.")
+
+        drop_cols = set(self.config.drop_columns)
+        if target_column is not None:
+            drop_cols.add(target_column)
+
+        raw_cols: Set[str] = set()
+        for feat in requested:
+            raw_cols |= self._required_raw_columns(feat)
+        raw_cols = {c for c in raw_cols if c not in drop_cols}
+
+        missing = [c for c in sorted(raw_cols) if c not in df_original.columns]
+        if missing:
+            raise KeyError("Missing raw columns required by manual_features: " + ", ".join(missing))
+
+        non_numeric = [
+            c for c in sorted(raw_cols) if not pd.api.types.is_numeric_dtype(df_original[c])
+        ]
+        if non_numeric:
+            raise TypeError(
+                "manual_features requires numeric raw columns only; non-numeric: "
+                + ", ".join(non_numeric)
+            )
+
+        base_df = df_original[list(sorted(raw_cols))].copy()
+        base_df = self._apply_imputation(base_df, fit=fit)
+
+        cache: Dict[str, pd.Series] = {}
+
+        def eval_feature(name: str) -> pd.Series:
+            if name in cache:
+                return cache[name]
+
+            if name in base_df.columns:
+                series = base_df[name]
+            elif name.endswith("_raw"):
+                series = eval_feature(name[: -len("_raw")])
+            elif "_x_" in name:
+                left, right = name.split("_x_", 1)
+                series = eval_feature(left) * eval_feature(right)
+            elif "_div_" in name:
+                left, right = name.split("_div_", 1)
+                series = self._safe_divide(eval_feature(left), eval_feature(right))
+            elif name.endswith("_inv"):
+                series = self._safe_inverse(eval_feature(name[: -len("_inv")]))
+            else:
+                match = self._ROLLING_MEAN_RE.match(name)
+                if match is not None:
+                    base = match.group("base")
+                    window = int(match.group("window"))
+                    series = self._rolling_mean(eval_feature(base), df_original=df_original, window=window)
+                else:
+                    match = self._ROLL_RE.match(name)
+                    if match is not None:
+                        base = match.group("base")
+                        window = int(match.group("window"))
+                        series = self._rolling_mean(eval_feature(base), df_original=df_original, window=window)
+                    else:
+                        raise KeyError(f"Unknown feature expression: {name}")
+
+            cache[name] = series
+            return series
+
+        features: Dict[str, pd.Series] = {}
+        for feat in requested:
+            features[feat] = eval_feature(feat)
+        out = pd.DataFrame(features, index=df_original.index)
+
+        if self.config.scale:
+            if fit:
+                self.scaler = StandardScaler()
+                scaled = self.scaler.fit_transform(out)
+            else:
+                if self.scaler is None:
+                    raise RuntimeError("Scaler has not been fitted. Call fit_transform first.")
+                scaled = self.scaler.transform(out)
+            out = pd.DataFrame(scaled, columns=out.columns, index=out.index)
+
+        return out
 
     def _add_domain_cross_features(self, df_numeric: pd.DataFrame) -> pd.DataFrame:
         """Generate domain-inspired crosses. Applied after missing-filter and imputation."""

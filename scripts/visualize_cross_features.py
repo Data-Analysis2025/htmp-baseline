@@ -38,10 +38,12 @@ def build_feature_extractor(feature_cfg: Dict[str, object], cv_cfg: Dict[str, ob
         imputation_strategy=feature_cfg.get("imputation_strategy", "median"),
         scale=False,  # keep raw scale for interpretability in plots
         rolling_windows=feature_cfg.get("rolling_windows"),
+        rolling_feature_naming=feature_cfg.get("rolling_feature_naming", "roll"),
         enable_interactions=feature_cfg.get("enable_interactions", True),
         time_column=cv_cfg.get("time_column"),
         group_column=cv_cfg.get("group_column"),
         missing_ratio_threshold=feature_cfg.get("missing_ratio_threshold", 40.0),
+        manual_features=feature_cfg.get("manual_features"),
     )
 
 

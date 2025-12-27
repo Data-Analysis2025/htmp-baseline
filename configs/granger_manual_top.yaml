@@ -1,0 +1,159 @@
+# 相関上位特徴（手動指定）＋グレンジャー因果検定向け設定
+
+run_name: granger_manual_top
+seed: 42
+
+paths:
+  input_dir: data
+  processed_dir: data/processed
+  models_dir: models
+  submissions_dir: submissions
+  logs_dir: logs
+  reports_dir: reports
+
+files:
+  train: train.csv
+  test: test.csv
+  calendar: calendar_data.csv
+  sample_submission: sample_submission.csv
+
+target:
+  column: market_forward_excess_returns
+
+cv:
+  strategy: time_series
+  n_splits: 5
+  time_column: date_id
+
+features:
+  drop_columns:
+    - date_id
+    - forward_returns
+    - risk_free_rate
+    - market_forward_excess_returns
+    - lagged_forward_returns
+    - lagged_risk_free_rate
+    - lagged_market_forward_excess_returns
+    - is_scored
+  imputation_strategy: median
+  scale: false
+  # manual_features を使う場合、rolling_windows / enable_interactions は無視されます（式で指定した分だけ生成）。
+  manual_features:
+    # ---- 元特徴量（相関上位） ----
+    - P10
+    - P8
+    - M3
+    - P2
+    - V13
+    - E3
+    - E14
+    - P6
+    - E20
+    - S5
+    - P11
+    - M12
+    - S4
+    - S11
+    - E10
+    - P3
+    - P1
+    - E2
+    - M1
+    - E7
+
+    # ---- 3,5,10移動平均を含めた元特徴量（上位40） ----
+    - P10_rolling_mean_3
+    - P10_rolling_mean_10
+    - P10_rolling_mean_5
+    - P8_rolling_mean_10
+    - P8_rolling_mean_3
+    - E8_rolling_mean_10
+    - P8_rolling_mean_5
+    - M3_rolling_mean_10
+    - E8_rolling_mean_5
+    - M3_rolling_mean_5
+    - E8_rolling_mean_3
+    - M3_rolling_mean_3
+    - P2_rolling_mean_3
+    - M12_rolling_mean_3
+    - E20_rolling_mean_3
+    - P2_rolling_mean_10
+    - P2_rolling_mean_5
+    - E3_rolling_mean_3
+    - E20_rolling_mean_5
+    - M12_rolling_mean_5
+    - E20_rolling_mean_10
+    - E3_rolling_mean_5
+    - E3_rolling_mean_10
+    - P1_rolling_mean_3
+    - P1_rolling_mean_10
+
+    # ---- 3日移動平均を含めたクロス特徴量（上位） ----
+    - P7_x_V13_rolling_mean_3
+    - E19_x_P7
+    - P6_x_P7
+    - P7_x_E19_rolling_mean_3
+    - P7_x_P6_rolling_mean_3
+    - P7_x_V7_rolling_mean_3
+    - P7_x_V7
+    - E19_x_M2
+    - P7_x_V9
+    - M2_x_E19_rolling_mean_3
+    - P7_x_V9_rolling_mean_3
+    - M2_x_V7_rolling_mean_3
+    - P7_x_V13
+    - P7_x_V10
+    - M2_x_V7
+    - M2_x_V9_rolling_mean_3
+    - M2_x_V13_rolling_mean_3
+    - P7_x_V10_rolling_mean_3
+    - M2_x_V9
+    - V5_x_V13_rolling_mean_3
+
+    # ---- 3日移動平均＋逆数（上位） ----
+    - P11_x_P11_rolling_mean_3_inv
+    - M15_x_P10_inv
+    - V13_rolling_mean_3_x_P10_inv
+    - E19_x_P10_inv
+    - P7_x_E19_raw
+    - E14_inv_x_P10_inv
+    - E19_rolling_mean_3_x_P10_inv
+    - E12_inv_x_P10_inv
+    - M15_rolling_mean_3_x_P10_inv
+    - P10_inv_x_E14_rolling_mean_3_inv
+    - P10_inv_x_E12_rolling_mean_3_inv
+    - P10_inv_x_I5_rolling_mean_3_inv
+    - E13_inv_x_P10_inv
+    - P10_inv_x_E13_rolling_mean_3_inv
+    - E11_inv_x_P10_inv
+    - P10_inv_x_E11_rolling_mean_3_inv
+    - P10_inv_x_I8_rolling_mean_3_inv
+    - P10_inv_x_P11_rolling_mean_3_inv
+    - M11_x_P10_inv
+    - S3_x_P10_inv
+    - V7_x_P10_inv
+    - V9_x_P10_inv
+    - V7_rolling_mean_3_x_P10_inv
+    - V9_rolling_mean_3_x_P10_inv
+    - M9_x_P10_inv
+    - S3_rolling_mean_3_x_P10_inv
+    - M9_rolling_mean_3_x_P10_inv
+    - P10_inv_x_E9_rolling_mean_3_inv
+    - V10_x_P10_inv
+    - V6_rolling_mean_3_x_P10_inv
+    - V10_rolling_mean_3_x_P10_inv
+    - S2_x_P10_inv
+    - M6_x_P10_inv
+    - P2_x_P10_inv
+    - M11_rolling_mean_3_x_P10_inv
+    - P2_rolling_mean_3_x_P10_inv
+    - S2_rolling_mean_3_x_P10_inv
+    - E20_x_P10_inv
+    - E20_rolling_mean_3_x_P10_inv
+    - M2_x_V7_rolling_mean_3
+
+model:
+  type: ridge
+  objective: rmse
+  params: {}
+

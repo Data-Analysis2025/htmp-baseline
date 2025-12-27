@@ -16,6 +16,8 @@ paths:
 files:
   train: train.csv
   test: test.csv
+  calendar: calendar_data.csv
+  sample_submission: sample_submission.csv
 
 # 目的変数
 target:
@@ -26,6 +28,14 @@ cv:
   strategy: time_series  # 時系列分割
   n_splits: 7
   time_column: date_id
+  n_test_blocks: 2
+  embargo_blocks: 0
+  month_col: month_id
+  train_months: 24
+  valid_months: 1
+  step_months: 1
+  min_train_months: 12
+  approx_month_length: 30
 
 # 特徴量エンジニアリング
 features:
@@ -42,6 +52,8 @@ features:
   missing_ratio_threshold: 40.0  # keep columns with <= 40% missingness
   scale: true
   enable_interactions: true
+  use_limited_features: false
+  limited_features: []
 
 # モデル
 model:
@@ -55,3 +67,9 @@ model:
     num_leaves: 64
     learning_rate: 0.04
     n_estimators: 500
+
+optuna:
+  use_optuna: false
+  n_trials: 20
+  timeout: null
+  show_progress_bar: false

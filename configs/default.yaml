@@ -1,5 +1,5 @@
 # 実験名
-run_name: default
+run_name: lgbm_base
 
 # ランダムシード
 seed: 42
@@ -15,6 +15,8 @@ paths:
 files:
   train: train.csv
   test: test.csv   # 必要なら追加
+  calendar: calendar_data.csv
+  sample_submission: sample_submission.csv
   
 # 目的変数
 target:
@@ -22,9 +24,18 @@ target:
 
 # 交差検証
 cv:
-  strategy: time_series  # 時系列分割
-  n_splits: 5
+  strategy: cpcv  # 時系列分割
+  n_splits: 7
   time_column: date_id
+  # 以下は strategy が cpcv or monthly_walk の場合のみ利用
+  n_test_blocks: 2        # cpcv: 検証ブロック数
+  embargo_blocks: 0       # cpcv: 前後何ブロックを除外するか
+  month_col: month_id     # monthly_walk: 月次カラム名
+  train_months: 24        # monthly_walk: 学習月数
+  valid_months: 1         # monthly_walk: 検証月数
+  step_months: 1          # monthly_walk: ステップ幅
+  min_train_months: 12    # monthly_walk: 最低学習月数
+  approx_month_length: 30 # monthly_walk: month_colがない場合の近似（月=30日）
 
 # 特徴量エンジニアリング
 features:
@@ -38,10 +49,27 @@ features:
     - lagged_market_forward_excess_returns
     - is_scored
   imputation_strategy: median
+  missing_ratio_threshold: 40.0  # keep columns with <= 40% missingness
   scale: true
+  enable_interactions: True
+  use_limited_features: True     # if true, limit features to the list below
+  limited_features: ["S2","E2","E3","P9","S1","S5","I2","P8","P10","P12","P13","U1","U2"]            # e.g., ["S2","E2","E3","P9","S1","S5","I2","P8","P10","P12","P13","U1","U2"]
+  n_selected: 200          # number of top features to keep after feature selection
+  selection_method: ensemble  # name of selection method (currently only 'ensemble' is supported)
 
 # モデル
 model:
-  type: ridge
+  type: lightgbm  # ridge | elasticnet | lightgbm
+  objective: rmse  # rmse | rmae
   params:
+    # num_leaves: 64
+    # learning_rate: 0.04
+    # n_estimators: 500
+    l1_ratio: 0.5
     alpha: 1.0
+
+optuna:
+  use_optuna: True
+  n_trials: 20
+  timeout: null   # seconds
+  show_progress_bar: True

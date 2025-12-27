@@ -25,6 +25,7 @@ htmp-baseline/
 │   ├── features.py         # 特徴量エンジニアリング
 │   └── model.py            # モデル定義
 ├── scripts/
+│   ├── setup_calendar_data.py  # カレンダーデータの取得（KaggleHub）
 │   ├── train.py            # モデル訓練スクリプト
 │   └── predict.py          # ローカル予測スクリプト
 ├── submissions/            # 提出ファイル
@@ -43,11 +44,13 @@ conda create -n kaggle python=3.11
 conda activate kaggle
 
 # 必要なパッケージをインストール
-pip install pandas numpy scikit-learn==1.2.2 pyyaml joblib polars
+pip install pandas numpy scikit-learn==1.2.2 pyyaml joblib polars kagglehub lightgbm optuna
 pip install kaggle  # Kaggle API用
 ```
 
 ### 2. データのダウンロード
+
+#### 2-1. コンペデータ（公式API）
 
 ```bash
 # Kaggle APIの設定（~/.kaggle/kaggle.jsonが必要）
@@ -58,6 +61,21 @@ cd data
 kaggle competitions download -c hull-tactical-market-prediction
 unzip hull-tactical-market-prediction.zip
 ```
+
+#### 2-2. カレンダーデータ（KaggleHub）
+
+Hull Tacticalコンペ用に日付情報を含むデータセットをKaggleHub経由で取得し、`date_id`でtrain/testと紐付けます。
+（Kaggle APIと同じ `~/.kaggle/kaggle.json` を利用します）
+
+```bash
+# カレンダーデータを取得して data/calendar_data.csv に配置
+python scripts/setup_calendar_data.py
+
+# 取得するファイル名を指定したい場合（デフォルトは *calendar*.csv の先頭）
+python scripts/setup_calendar_data.py --calendar-file calendar_data.csv
+```
+
+`files.calendar`（デフォルト: `data/calendar_data.csv`）が存在すると、自動でカレンダーフィーチャが付与されます。
 
 ## 🎯 ローカルでのモデル訓練
 
@@ -76,13 +94,19 @@ python scripts/train.py --config configs/default.yaml
 # Overall OOF RMSE: 0.01503
 ```
 
+#### 高度なCV/Optuna（LightGBM向け）
+- `cv.strategy: cpcv` でコンビネーション+embargoの CPCV（`n_test_blocks`, `embargo_blocks` を設定）
+- `cv.strategy: monthly_walk` で月次ウォークフォワード（`month_col`, `train_months`, `valid_months`, `step_months` 等）
+- `optuna.use_optuna: true` で LightGBM のハイパラ探索（`optuna.n_trials`, `optuna.timeout` など）
+  - 現行実装では Optuna チューニングは `model.type: lightgbm` の場合のみ有効
+
 ### 訓練されるもの
 
 - `models/default_fold_0.pkl` ～ `models/default_fold_4.pkl`: 各Foldのモデル
 - `models/default_metadata.json`: メタデータ（設定、スコアなど）
 - `logs/default_train.json`: 訓練ログ
 
-## 📤 Kaggleへの提出手順（重要）
+## 📤 Kaggleへの提出手順（重要）f
 
 このコンペティションは **Code Competition** 形式です。CSVファイルではなく、**Notebookを提出**します。
 
@@ -298,6 +322,15 @@ model:
   params:
     alpha: 1.0
 ```
+
+### カレンダー由来の周期エンコーディング
+
+- `scripts/setup_calendar_data.py` で取得した `data/calendar_data.csv` を `date_id` で train/test にマージ
+- カレンダーデータの曜日・月情報を用いて以下の4特徴量を追加（sin/cosの周期表現）
+  - `cal_dow_sin`, `cal_dow_cos`
+  - `cal_month_sin`, `cal_month_cos`
+- `files.calendar` を変更することで任意の配置先を指定可能（デフォルトは `data/calendar_data.csv`）
+- 欠損は既存の前処理（中央値補完＋スケーリング）で自動的に処理されます
 
 ## 🔑 重要なポイント
 
